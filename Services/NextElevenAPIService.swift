@@ -139,15 +139,8 @@ class NextElevenAPIService {
         conversationHistory: [ChatMessage],
         completion: @escaping @Sendable (Result<String, Error>) -> Void
     ) {
-        // Get API key from Keychain, or use default if not found
-        var apiKey = getAPIKey()
-        if apiKey == nil || apiKey!.isEmpty || apiKey == "YOUR_NEXTELEVEN_API_KEY_HERE" {
-            // Auto-save default key if missing
-            saveAPIKey(defaultAPIKey)
-            apiKey = defaultAPIKey
-        }
-        
-        guard let apiKey = apiKey, !apiKey.isEmpty else {
+        // Get API key from Keychain
+        guard let apiKey = getAPIKey(), !apiKey.isEmpty, apiKey != "YOUR_NEXTELEVEN_API_KEY_HERE" else {
             print("❌ API Key missing or invalid")
             completion(.failure(APIError.missingAPIKey))
             return
