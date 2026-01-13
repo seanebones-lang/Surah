@@ -1,0 +1,43 @@
+name: SeemiSpiritualCompanion
+options:
+  bundleIdPrefix: com.seemi.spiritual
+  deploymentTarget:
+    iOS: "18.0"
+  developmentLanguage: en
+  
+settings:
+  SWIFT_VERSION: "6.0"
+  IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+  TARGETED_DEVICE_FAMILY: "1,2"
+  ENABLE_PREVIEWS: YES
+  SWIFT_STRICT_CONCURRENCY: complete
+  
+targets:
+  SeemiSpiritualCompanion:
+    type: application
+    platform: iOS
+    deploymentTarget: "18.0"
+    sources:
+      - path: .
+        excludes:
+          - "*.md"
+          - "*.txt"
+          - ".git"
+          - ".gitignore"
+          - "project.yml"
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.seemi.spiritual.companion
+      INFOPLIST_FILE: Info.plist
+      ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      ENABLE_PREVIEWS: YES
+      DEVELOPMENT_TEAM: ""
+    dependencies:
+      - package: Alamofire
+    scheme:
+      testTargets: []
+      gatherCoverageData: false
+      
+packages:
+  Alamofire:
+    url: https://github.com/Alamofire/Alamofire.git
+    from: 5.9.0
