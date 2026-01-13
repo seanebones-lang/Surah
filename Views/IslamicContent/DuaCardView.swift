@@ -26,7 +26,7 @@ struct DuaCardView: View {
                     
                     Text(item.source)
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Color(hex: "#558B2F"))
                 }
                 
                 Spacer()
@@ -93,7 +93,7 @@ struct DuaCardView: View {
                                     
                                     Text("Authentic Dua recitation with Urdu translation")
                                         .font(.system(size: 14))
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Color(hex: "#558B2F"))
                                     
                                     if item.repeatCount > 1 {
                                         Text("🔁 Recite \(item.repeatCount) times")
@@ -108,7 +108,7 @@ struct DuaCardView: View {
                                     .foregroundStyle(Color(hex: "#66BB6A"))
                             }
                             .padding()
-                            .background(Color.white)
+                            .background(Color(UIColor.secondarySystemGroupedBackground))
                             .cornerRadius(12)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 12)
@@ -134,7 +134,7 @@ struct DuaCardView: View {
                                     .font(.system(size: 16, weight: .medium))
                                 Text("This Dua is best recited in your own voice")
                                     .font(.system(size: 14))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color(hex: "#558B2F"))
                             }
                         }
                         
@@ -226,11 +226,11 @@ struct AudioControlsView: View {
                     if audioPlayer.isPlaying && audioPlayer.currentItemID == item.id {
                         Text(formatTime(audioPlayer.currentTime) + " / " + formatTime(audioPlayer.duration))
                             .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(hex: "#558B2F"))
                     } else {
                         Text("Recitation with translation")
                             .font(.system(size: 14))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(hex: "#558B2F"))
                     }
                 }
                 
@@ -260,7 +260,7 @@ struct AudioControlsView: View {
             HStack {
                 Text("Speed:")
                     .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color(hex: "#558B2F"))
                 
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
                     Button(action: {
@@ -269,7 +269,7 @@ struct AudioControlsView: View {
                     }) {
                         Text("\(speed, specifier: "%.2g")x")
                             .font(.system(size: 14, weight: playbackSpeed == Float(speed) ? .bold : .regular))
-                            .foregroundStyle(playbackSpeed == Float(speed) ? Color(hex: "#66BB6A") : .secondary)
+                            .foregroundStyle(playbackSpeed == Float(speed) ? Color(hex: "#66BB6A") : Color(hex: "#558B2F"))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(playbackSpeed == Float(speed) ? Color(hex: "#E8F5E9") : Color.clear)

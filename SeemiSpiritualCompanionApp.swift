@@ -31,6 +31,8 @@ struct SeemiSpiritualCompanionApp: App {
                 LaunchScreenView()
                     .environment(appState)
                     .onAppear {
+                        // Initialize API key on app launch
+                        _ = NextElevenAPIService.shared
                         // Request location permission on app launch for prayer times
                         NotificationService.shared.requestLocationOnLaunch()
                     }
@@ -38,6 +40,8 @@ struct SeemiSpiritualCompanionApp: App {
                 HomeView()
                     .environment(appState)
                     .onAppear {
+                        // Initialize API key if not already done
+                        _ = NextElevenAPIService.shared
                         // Ensure location is requested when home view appears
                         if NotificationService.shared.checkLocationAuthorization() == .notDetermined {
                             NotificationService.shared.requestLocationOnLaunch()

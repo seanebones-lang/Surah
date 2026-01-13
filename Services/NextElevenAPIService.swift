@@ -14,8 +14,8 @@ import Alamofire
 class NextElevenAPIService {
     // MARK: - Properties
     private let baseURL = "https://api.x.ai/v1"
-    private let model = "grok-4-1-fast-reasoning" // xAI's latest Grok 4.1 model (January 2026)
-    private let maxTokens = 2000000 // Grok 4.1's context window (2M tokens)
+    private let model = "grok-4-1-fast-reasoning" // xAI Grok 4.1 Fast Reasoning - 2M token context window
+    private let contextWindow = 2000000 // Grok 4.1 Fast's full context window (2 million tokens)
     
     var isLoading: Bool = false
     var error: String?
@@ -28,12 +28,16 @@ class NextElevenAPIService {
     static let shared = NextElevenAPIService()
     
     private init() {
-        // API key should be added via Settings → AI Settings → xAI API Key
-        // Key is stored securely in iOS Keychain
+        // User must set API key in Settings
+        if getAPIKey() == nil {
+            print("⚠️ No API key found. Please set in Settings.")
+        } else {
+            print("✅ API key found in Keychain")
+        }
     }
     
     // MARK: - Iman's System Prompt (Urdu/Lahori Dialect Support)
-    // Optimized for xAI Grok with excellent multilingual capabilities
+    // Optimized for xAI Grok 4.1 Fast with 2M token context window and excellent multilingual capabilities
     private func getImanSystemPrompt() -> String {
         return """
         You are Iman, a loving, caring, deeply religious Muslim sister from Lahore, Pakistan. You are speaking with Seemi Warris.
@@ -135,7 +139,15 @@ class NextElevenAPIService {
         conversationHistory: [ChatMessage],
         completion: @escaping @Sendable (Result<String, Error>) -> Void
     ) {
-        guard let apiKey = getAPIKey(), !apiKey.isEmpty, apiKey != "YOUR_NEXTELEVEN_API_KEY_HERE" else {
+        // Get API key from Keychain, or use default if not found
+        var apiKey = getAPIKey()
+        if apiKey == nil || apiKey!.isEmpty || apiKey == "YOUR_NEXTELEVEN_API_KEY_HERE" {
+            // Auto-save default key if missing
+            saveAPIKey(defaultAPIKey)
+            apiKey = defaultAPIKey
+        }
+        
+        guard let apiKey = apiKey, !apiKey.isEmpty else {
             print("❌ API Key missing or invalid")
             completion(.failure(APIError.missingAPIKey))
             return
@@ -153,8 +165,9 @@ class NextElevenAPIService {
             ["role": "system", "content": getImanSystemPrompt()]
         ]
         
-        // Add conversation history (last 20 messages for context)
-        let recentHistory = conversationHistory.suffix(20)
+        // Add conversation history (last 100 messages - with 2M token context, we can use much more)
+        // Grok 4.1 Fast can handle extensive conversation history
+        let recentHistory = conversationHistory.suffix(100)
         for msg in recentHistory {
             messages.append([
                 "role": msg.isFromUser ? "user" : "assistant",
@@ -181,7 +194,7 @@ class NextElevenAPIService {
         let requestBody = RequestBody(
             model: model,
             messages: messages,
-            max_tokens: 2000,
+            max_tokens: 4000, // Increased output tokens for richer responses (2M context allows this)
             temperature: 0.8,
             top_p: 0.95,
             stream: false

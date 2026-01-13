@@ -19,7 +19,7 @@ struct ImanChatView: View {
         NavigationStack {
             ZStack {
                 // Background
-                Color(hex: "#F5F5F5")
+                Color(UIColor.systemGroupedBackground)
                     .ignoresSafeArea()
                 
                 VStack(spacing: 0) {
@@ -36,6 +36,7 @@ struct ImanChatView: View {
                                         
                         Text("Assalamu Alaikum Seemi")
                             .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(.primary)
                         
                         Text("I'm Iman, your caring sister from Lahore. I understand Urdu, English, and Lahori dialect fluently.")
                             .font(.system(size: 16))
@@ -71,7 +72,7 @@ struct ImanChatView: View {
                                             .foregroundStyle(.secondary)
                                     }
                                     .padding(12)
-                                    .background(Color.white)
+                                    .background(Color(UIColor.secondarySystemGroupedBackground))
                                     .cornerRadius(16)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -92,7 +93,7 @@ struct ImanChatView: View {
                         TextField("Message Iman (Urdu/English)...", text: $messageText, axis: .vertical)
                             .textFieldStyle(.plain)
                             .padding(12)
-                            .background(Color.white)
+                            .background(Color(UIColor.secondarySystemGroupedBackground))
                             .cornerRadius(20)
                             .lineLimit(1...5)
                             .disabled(isTyping)
@@ -155,12 +156,28 @@ struct ImanChatView: View {
                         notification.notificationOccurred(.success)
                         
                     case .failure(let error):
-                        // Show error and fallback
-                        let errorMsg = ChatMessage(
-                            content: "Seemi, I'm having trouble connecting. Error: \(error.localizedDescription). Please check your internet connection and API key in Settings.",
-                            isFromUser: false
-                        )
+                        // Show user-friendly error message
+                        var errorMessage = "Seemi, I'm having trouble connecting right now."
+                        
+                        if let apiError = error as? APIError {
+                            switch apiError {
+                            case .missingAPIKey:
+                                errorMessage = "Seemi, I need your xAI API key to chat! Please go to Settings → AI Settings → xAI API Key and add your key from console.x.ai. 🌸"
+                            case .emptyResponse:
+                                errorMessage = "I received an empty response. Please try again in a moment."
+                            case .invalidResponse:
+                                errorMessage = "There was an issue with the response format. Please try again."
+                            }
+                        } else {
+                            errorMessage += " Error: \(error.localizedDescription). Please check your internet connection and API key in Settings."
+                        }
+                        
+                        let errorMsg = ChatMessage(content: errorMessage, isFromUser: false)
                         modelContext.insert(errorMsg)
+                        
+                        // Haptic feedback for error
+                        let notification = UINotificationFeedbackGenerator()
+                        notification.notificationOccurred(.error)
                     }
                 }
             }
@@ -192,7 +209,7 @@ struct SimpleChatBubbleView: View {
                     .padding(12)
                     .background(
                         message.isFromUser ?
-                        Color(hex: "#66BB6A") : Color.white
+                        Color(hex: "#66BB6A") : Color(UIColor.secondarySystemGroupedBackground)
                     )
                     .cornerRadius(16)
                 

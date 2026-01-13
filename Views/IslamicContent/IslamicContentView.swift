@@ -35,7 +35,7 @@ struct IslamicContentView: View {
                             
                             Text("8 Sacred Duas & Surahs")
                                 .font(.system(size: 16, weight: .light))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color(hex: "#558B2F"))
                         }
                         .padding(.top, 20)
                         .padding(.bottom, 10)
