@@ -21,7 +21,22 @@ struct SeemiSpiritualCompanionApp: App {
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
         } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+            // Better error handling - log and create in-memory fallback
+            AppLogger.error("Failed to create ModelContainer: \(error.localizedDescription)")
+            AppLogger.warning("Using in-memory storage as fallback")
+            let fallbackConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+            do {
+                return try ModelContainer(for: schema, configurations: [fallbackConfig])
+            } catch {
+                AppLogger.error("Could not create ModelContainer even with fallback: \(error.localizedDescription)")
+                // Return in-memory container as last resort - app will function but data won't persist
+                // This is better than crashing the app
+                if let lastResort = try? ModelContainer(for: schema, configurations: [ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)]) {
+                    return lastResort
+                }
+                // Only fatal if we absolutely cannot create any container
+                fatalError("Critical: Unable to initialize data storage. Please reinstall the app.")
+            }
         }
     }()
     
@@ -31,8 +46,11 @@ struct SeemiSpiritualCompanionApp: App {
                 LaunchScreenView()
                     .environment(appState)
                     .onAppear {
-                        // Initialize API key on app launch
-                        _ = NextElevenAPIService.shared
+                        // Initialize services on app launch
+                        _ = XAIAPIService.shared
+                        _ = NetworkMonitorService.shared // Start network monitoring
+                        _ = HealthCheckService.shared // Initialize health check
+                        _ = RateLimitingService.shared // Initialize rate limiting
                         // Request location permission on app launch for prayer times
                         NotificationService.shared.requestLocationOnLaunch()
                     }
@@ -40,12 +58,22 @@ struct SeemiSpiritualCompanionApp: App {
                 HomeView()
                     .environment(appState)
                     .onAppear {
-                        // Initialize API key if not already done
-                        _ = NextElevenAPIService.shared
+                        // Initialize services if not already done
+                        _ = XAIAPIService.shared
+                        _ = NetworkMonitorService.shared // Ensure network monitoring is active
                         // Ensure location is requested when home view appears
                         if NotificationService.shared.checkLocationAuthorization() == .notDetermined {
                             NotificationService.shared.requestLocationOnLaunch()
                         }
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) { _ in
+                        // Optimize battery: Clean up resources when app goes to background
+                        AudioPlayerService.shared.pause() // Pause audio to save battery
+                        SpeechService.shared.cleanup() // Clean up speech resources
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                        // Reinitialize network monitoring when app comes to foreground
+                        _ = NetworkMonitorService.shared
                     }
             }
         }
@@ -58,9 +86,23 @@ struct SeemiSpiritualCompanionApp: App {
 class AppState {
     var showLaunchScreen: Bool = true
     var selectedTab: Int = 0
-    var isDarkMode: Bool = false
-    var notificationsEnabled: Bool = true
+    var isDarkMode: Bool {
+        didSet {
+            UserDefaults.standard.set(isDarkMode, forKey: "isDarkMode")
+        }
+    }
+    var notificationsEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(notificationsEnabled, forKey: "notificationsEnabled")
+        }
+    }
     var prayerTimeZone: String = "Asia/Karachi" // Lahore PKT
+    
+    init() {
+        // Load persisted preferences
+        self.isDarkMode = UserDefaults.standard.bool(forKey: "isDarkMode")
+        self.notificationsEnabled = UserDefaults.standard.bool(forKey: "notificationsEnabled")
+    }
     
     func dismissLaunchScreen() {
         withAnimation(.easeOut(duration: 0.5)) {

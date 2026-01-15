@@ -38,12 +38,14 @@ struct LaunchScreenView: View {
                         .foregroundStyle(.white)
                         .opacity(animateText ? 1 : 0)
                         .offset(y: animateText ? 0 : -20)
+                        .accessibilityAddTraits(.isHeader)
                     
                     Text("Seemi")
                         .font(.system(size: 48, weight: .bold, design: .serif))
                         .foregroundStyle(.white)
                         .opacity(animateText ? 1 : 0)
                         .offset(y: animateText ? 0 : -20)
+                        .accessibilityAddTraits(.isHeader)
                     
                     Text(currentGreeting())
                         .font(.system(size: 24, weight: .light, design: .serif))
@@ -67,6 +69,8 @@ struct LaunchScreenView: View {
                     .foregroundStyle(.white.opacity(0.7))
                     .opacity(animateText ? 1 : 0)
                     .padding(.bottom, 50)
+                    .accessibilityLabel("Bismillah ir-Rahman ir-Rahim")
+                    .accessibilityHint("In the name of Allah, the Most Gracious, the Most Merciful")
             }
         }
         .onAppear {

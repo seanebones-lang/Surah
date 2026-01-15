@@ -21,6 +21,7 @@ struct HomeView: View {
                     Label("Islamic Content", systemImage: "book.closed")
                 }
                 .tag(0)
+                .accessibilityLabel("Islamic Content tab")
             
             // Tab 2: AI Chat with Iman
             ImanChatView()
@@ -28,6 +29,7 @@ struct HomeView: View {
                     Label("Chat with Iman", systemImage: "message.fill")
                 }
                 .tag(1)
+                .accessibilityLabel("Chat with Iman tab")
             
             // Tab 3: Settings
             SettingsView()
@@ -35,6 +37,7 @@ struct HomeView: View {
                     Label("Settings", systemImage: "gearshape.fill")
                 }
                 .tag(2)
+                .accessibilityLabel("Settings tab")
         }
         .tint(Color(hex: "#66BB6A")) // Jasmine green accent
         .preferredColorScheme(appState.isDarkMode ? .dark : nil)

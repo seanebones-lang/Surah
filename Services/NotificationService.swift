@@ -57,7 +57,7 @@ class NotificationService: NSObject {
             locationManager.requestLocation()
         case .denied, .restricted:
             // Permission denied, use Lahore fallback
-            print("⚠️ Location permission denied, using Lahore coordinates")
+            AppLogger.info("Location permission denied, using Lahore coordinates as fallback")
             Task { @MainActor in
                 self.locationName = "Lahore, Pakistan (default)"
                 // Still fetch prayer times with Lahore coordinates
@@ -107,14 +107,32 @@ class NotificationService: NSObject {
     
     // MARK: - Prayer Times
     
+    // MARK: - Cache Keys
+    private let prayerTimesCacheKey = "com.seemi.spiritual.prayerTimes"
+    private let prayerTimesCacheDateKey = "com.seemi.spiritual.prayerTimesCacheDate"
+    private let prayerTimesCacheLocationKey = "com.seemi.spiritual.prayerTimesCacheLocation"
+    private let cacheValidityHours: TimeInterval = 24 * 60 * 60 // 24 hours
+    private let locationChangeThreshold: Double = 0.05 // ~5km (0.05 degrees ≈ 5.5km)
+    
     /// Fetch prayer times based on current location (or Lahore as fallback)
+    /// Uses caching to reduce API calls - cached for 24 hours or until location changes significantly
     func fetchPrayerTimes(completion: @escaping @Sendable (Result<PrayerTimes, Error>) -> Void) {
+        let coordinates = getCurrentCoordinates()
+        
+        // Check cache first
+        if let cachedPrayerTimes = getCachedPrayerTimes(for: coordinates) {
+            AppLogger.debug("Using cached prayer times")
+            Task { @MainActor in
+                self.prayerTimes = cachedPrayerTimes
+                completion(.success(cachedPrayerTimes))
+            }
+            return
+        }
+        
+        // Cache expired or location changed - fetch from API
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "dd-MM-yyyy"
         let dateString = dateFormatter.string(from: Date())
-        
-        // Use current location or fallback to Lahore
-        let coordinates = getCurrentCoordinates()
         
         // Aladhan API with actual location
         let urlString = "https://api.aladhan.com/v1/timings/\(dateString)?latitude=\(coordinates.latitude)&longitude=\(coordinates.longitude)&method=2"
@@ -123,6 +141,8 @@ class NotificationService: NSObject {
             completion(.failure(NotificationError.invalidURL))
             return
         }
+        
+        AppLogger.debug("Fetching prayer times from API for location: \(coordinates.latitude), \(coordinates.longitude)")
         
         URLSession.shared.dataTask(with: url) { data, response, error in
             if let error = error {
@@ -150,12 +170,82 @@ class NotificationService: NSObject {
                     )
                     
                     self.prayerTimes = prayerTimes
+                    
+                    // Cache the result
+                    self.cachePrayerTimes(prayerTimes, for: coordinates)
+                    
                     completion(.success(prayerTimes))
                 }
             } catch {
                 completion(.failure(error))
             }
         }.resume()
+    }
+    
+    // MARK: - Caching Helpers
+    
+    private func getCachedPrayerTimes(for coordinates: CLLocationCoordinate2D) -> PrayerTimes? {
+        guard let cachedData = UserDefaults.standard.data(forKey: prayerTimesCacheKey),
+              let cachedDate = UserDefaults.standard.object(forKey: prayerTimesCacheDateKey) as? Date,
+              let cachedLocation = UserDefaults.standard.string(forKey: prayerTimesCacheLocationKey) else {
+            return nil
+        }
+        
+        // Check if cache is still valid (less than 24 hours old)
+        let age = Date().timeIntervalSince(cachedDate)
+        guard age < cacheValidityHours else {
+            AppLogger.debug("Prayer times cache expired (age: \(age/3600) hours)")
+            return nil
+        }
+        
+        // Check if location changed significantly
+        let locationComponents = cachedLocation.split(separator: ",")
+        guard locationComponents.count == 2,
+              let cachedLat = Double(locationComponents[0]),
+              let cachedLon = Double(locationComponents[1]) else {
+            return nil
+        }
+        
+        let latDiff = abs(coordinates.latitude - cachedLat)
+        let lonDiff = abs(coordinates.longitude - cachedLon)
+        
+        if latDiff > locationChangeThreshold || lonDiff > locationChangeThreshold {
+            AppLogger.debug("Location changed significantly, invalidating cache")
+            return nil
+        }
+        
+        // Decode cached prayer times
+        do {
+            let decoder = JSONDecoder()
+            let prayerTimes = try decoder.decode(PrayerTimes.self, from: cachedData)
+            return prayerTimes
+        } catch {
+            AppLogger.warning("Failed to decode cached prayer times: \(error.localizedDescription)")
+            return nil
+        }
+    }
+    
+    private func cachePrayerTimes(_ prayerTimes: PrayerTimes, for coordinates: CLLocationCoordinate2D) {
+        do {
+            let encoder = JSONEncoder()
+            let data = try encoder.encode(prayerTimes)
+            
+            UserDefaults.standard.set(data, forKey: prayerTimesCacheKey)
+            UserDefaults.standard.set(Date(), forKey: prayerTimesCacheDateKey)
+            UserDefaults.standard.set("\(coordinates.latitude),\(coordinates.longitude)", forKey: prayerTimesCacheLocationKey)
+            
+            AppLogger.debug("Prayer times cached successfully")
+        } catch {
+            AppLogger.warning("Failed to cache prayer times: \(error.localizedDescription)")
+        }
+    }
+    
+    /// Clear prayer times cache (useful for testing or manual refresh)
+    func clearPrayerTimesCache() {
+        UserDefaults.standard.removeObject(forKey: prayerTimesCacheKey)
+        UserDefaults.standard.removeObject(forKey: prayerTimesCacheDateKey)
+        UserDefaults.standard.removeObject(forKey: prayerTimesCacheLocationKey)
+        AppLogger.debug("Prayer times cache cleared")
     }
     
     /// Schedule prayer time notifications
@@ -203,7 +293,7 @@ class NotificationService: NSObject {
         
         notificationCenter.add(request) { error in
             if let error = error {
-                print("Error scheduling \(prayer.displayName): \(error)")
+                AppLogger.error("Error scheduling \(prayer.displayName) notification: \(error.localizedDescription)")
             }
         }
     }
@@ -268,7 +358,7 @@ class NotificationService: NSObject {
         
         notificationCenter.add(request) { error in
             if let error = error {
-                print("Error scheduling dua reminder: \(error)")
+                AppLogger.error("Error scheduling dua reminder: \(error.localizedDescription)")
             }
         }
     }
@@ -314,14 +404,15 @@ extension NotificationService: CLLocationManagerDelegate {
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
         
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
             switch status {
             case .authorizedWhenInUse, .authorizedAlways:
                 // Permission granted - request location
                 self.locationManager.requestLocation()
             case .denied, .restricted:
                 // Permission denied - use Lahore fallback
-                print("⚠️ Location permission denied, using Lahore coordinates")
+                AppLogger.info("Location permission denied, using Lahore coordinates as fallback")
                 self.locationName = "Lahore, Pakistan (default)"
                 self.fetchPrayerTimes { _ in }
             case .notDetermined:
@@ -336,7 +427,8 @@ extension NotificationService: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         
-        Task { @MainActor in
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
             self.currentLocation = location.coordinate
             
             // Get location name (reverse geocoding)
@@ -345,12 +437,13 @@ extension NotificationService: CLLocationManagerDelegate {
                 if let placemark = placemarks?.first {
                     let city = placemark.locality ?? "Unknown"
                     let country = placemark.country ?? ""
-                    Task { @MainActor in
-                        self.locationName = "\(city), \(country)"
+                    Task { @MainActor [weak self] in
+                        self?.locationName = "\(city), \(country)"
                     }
                 } else if let error = error {
-                    print("⚠️ Reverse geocoding error: \(error.localizedDescription)")
-                    Task { @MainActor in
+                    AppLogger.warning("Reverse geocoding error: \(error.localizedDescription)")
+                    Task { @MainActor [weak self] in
+                        guard let self = self else { return }
                         self.locationName = "Location: \(String(format: "%.2f", location.coordinate.latitude)), \(String(format: "%.2f", location.coordinate.longitude))"
                     }
                 }
@@ -362,8 +455,9 @@ extension NotificationService: CLLocationManagerDelegate {
     }
     
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("⚠️ Location error: \(error.localizedDescription)")
-        Task { @MainActor in
+        AppLogger.error("Location error: \(error.localizedDescription)")
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
             // Use Lahore fallback on error
             self.locationName = "Lahore, Pakistan (default)"
             // Still fetch prayer times with Lahore coordinates
@@ -374,7 +468,7 @@ extension NotificationService: CLLocationManagerDelegate {
 
 // MARK: - Models
 
-struct PrayerTimes {
+struct PrayerTimes: Codable {
     let fajr: Date
     let dhuhr: Date
     let asr: Date

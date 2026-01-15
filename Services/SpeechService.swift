@@ -103,23 +103,51 @@ class SpeechService: NSObject {
             guard let self = self else { return }
             
             var isFinal = false
+            var finalText = ""
             
             if let result = result {
-                self.recognizedText = result.bestTranscription.formattedString
+                let transcribedText = result.bestTranscription.formattedString
+                Task { @MainActor in
+                    self.recognizedText = transcribedText
+                }
                 isFinal = result.isFinal
+                if isFinal {
+                    finalText = transcribedText
+                }
             }
             
-            if error != nil || isFinal {
+            if let error = error {
+                AppLogger.error("Speech recognition error: \(error.localizedDescription)")
                 self.audioEngine.stop()
                 inputNode.removeTap(onBus: 0)
                 
-                self.recognitionRequest = nil
-                self.recognitionTask = nil
-                self.isRecording = false
-                
-                if isFinal {
-                    completion(self.recognizedText)
+                Task { @MainActor in
+                    self.recognitionRequest = nil
+                    self.recognitionTask = nil
+                    self.isRecording = false
+                    self.error = error.localizedDescription
                 }
+                
+                // Complete with empty string on error
+                if !finalText.isEmpty {
+                    completion(finalText)
+                } else {
+                    completion("")
+                }
+                return
+            }
+            
+            if isFinal {
+                self.audioEngine.stop()
+                inputNode.removeTap(onBus: 0)
+                
+                Task { @MainActor in
+                    self.recognitionRequest = nil
+                    self.recognitionTask = nil
+                    self.isRecording = false
+                }
+                
+                completion(finalText)
             }
         }
     }
@@ -128,7 +156,37 @@ class SpeechService: NSObject {
     func stopRecording() {
         audioEngine.stop()
         recognitionRequest?.endAudio()
+        
+        // Clean up audio engine resources
+        let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0)
+        
+        // Cancel recognition task
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
+        
+        // Deactivate audio session to free resources
+        do {
+            let audioSession = AVAudioSession.sharedInstance()
+            try audioSession.setActive(false, options: .notifyOthersOnDeactivation)
+        } catch {
+            AppLogger.warning("Failed to deactivate audio session: \(error.localizedDescription)")
+        }
+        
         isRecording = false
+    }
+    
+    /// Clean up all resources (call when view disappears or app goes to background)
+    func cleanup() {
+        stopRecording()
+        stopSpeaking()
+        
+        // Additional cleanup
+        audioEngine.stop()
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest = nil
     }
     
     // MARK: - Text-to-Speech (Voice Output)
@@ -194,11 +252,17 @@ class SpeechService: NSObject {
 
 extension SpeechService: AVSpeechSynthesizerDelegate {
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didStart utterance: AVSpeechUtterance) {
-        // Speech started
+        // Speech started - update on main actor if needed
+        Task { @MainActor [weak self] in
+            // Could update UI state here if needed
+        }
     }
     
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
-        // Speech finished
+        // Speech finished - update on main actor if needed
+        Task { @MainActor [weak self] in
+            // Could update UI state here if needed
+        }
     }
 }
 

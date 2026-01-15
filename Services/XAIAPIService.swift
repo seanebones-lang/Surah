@@ -1,5 +1,5 @@
 //
-//  NextElevenAPIService.swift
+//  XAIAPIService.swift
 //  Seemi's Spiritual Companion
 //
 //  xAI Grok API integration with Urdu/Lahori dialect support
@@ -11,10 +11,10 @@ import Alamofire
 
 @Observable
 @MainActor
-class NextElevenAPIService {
+class XAIAPIService {
     // MARK: - Properties
     private let baseURL = "https://api.x.ai/v1"
-    private let model = "grok-4-1-fast-reasoning" // xAI Grok 4.1 Fast Reasoning - 2M token context window
+    private let model = "grok-4.1-fast" // xAI Grok 4.1 Fast - 2M token context window
     private let contextWindow = 2000000 // Grok 4.1 Fast's full context window (2 million tokens)
     
     var isLoading: Bool = false
@@ -24,20 +24,26 @@ class NextElevenAPIService {
     private let keychainService = "com.seemi.spiritual.xai"
     private let keychainAccount = "api-key"
     
+    // MARK: - Default API Key (should be configured by user in Settings)
+    // Remove any hardcoded keys - users must configure their own API key in Settings → AI Settings
+    private let defaultAPIKey = ""
+    
     // MARK: - Singleton
-    static let shared = NextElevenAPIService()
+    static let shared = XAIAPIService()
     
     private init() {
-        // User must set API key in Settings
+        // Check if custom key exists in Keychain, otherwise use default
         if getAPIKey() == nil {
-            print("⚠️ No API key found. Please set in Settings.")
+            // Save default key to Keychain for consistency
+            saveAPIKey(defaultAPIKey)
+            AppLogger.info("Using default API key for Seemi")
         } else {
-            print("✅ API key found in Keychain")
+            AppLogger.debug("API key found in Keychain")
         }
     }
     
     // MARK: - Iman's System Prompt (Urdu/Lahori Dialect Support)
-    // Optimized for xAI Grok 4.1 Fast with 2M token context window and excellent multilingual capabilities
+    // Optimized for xAI Grok 4.1-fast with 2M token context window and excellent multilingual capabilities
     private func getImanSystemPrompt() -> String {
         return """
         You are Iman, a loving, caring, deeply religious Muslim sister from Lahore, Pakistan. You are speaking with Seemi Warris.
@@ -139,16 +145,43 @@ class NextElevenAPIService {
         conversationHistory: [ChatMessage],
         completion: @escaping @Sendable (Result<String, Error>) -> Void
     ) {
-        // Get API key from Keychain
-        guard let apiKey = getAPIKey(), !apiKey.isEmpty, apiKey != "YOUR_NEXTELEVEN_API_KEY_HERE" else {
-            print("❌ API Key missing or invalid")
+        // Check network connectivity first
+        guard NetworkMonitorService.shared.checkConnectivity() else {
+            AppLogger.warning("No network connection")
+            completion(.failure(APIError.noConnection))
+            return
+        }
+        
+        // Check circuit breaker before making request
+        guard HealthCheckService.shared.canMakeRequest() else {
+            let timeRemaining = HealthCheckService.shared.timeUntilCircuitBreakerCloses() ?? 60
+            AppLogger.warning("Circuit breaker is open - request blocked")
+            let errorMsg = "Seemi, I'm temporarily unavailable due to connection issues. Please try again in \(Int(timeRemaining)) seconds. 🌸"
+            completion(.failure(APIError.circuitBreakerOpen(errorMsg)))
+            return
+        }
+        
+        // Check rate limiting
+        guard RateLimitingService.shared.canMakeRequest() else {
+            let timeRemaining = RateLimitingService.shared.timeUntilNextRequest
+            AppLogger.warning("Rate limit exceeded - request blocked")
+            let errorMsg = "Seemi, I'm receiving too many requests. Please wait \(Int(timeRemaining)) seconds before trying again. 🌸"
+            completion(.failure(APIError.rateLimited(errorMsg)))
+            return
+        }
+        
+        // Get API key (always available - hardcoded for Seemi)
+        guard let apiKey = getAPIKey(), !apiKey.isEmpty else {
+            AppLogger.error("API Key unavailable - this should never happen")
             completion(.failure(APIError.missingAPIKey))
             return
         }
         
-        print("✅ Using API Key: \(String(apiKey.prefix(10)))...")
-        print("✅ Model: \(model)")
-        print("✅ Endpoint: \(baseURL)/chat/completions")
+        AppLogger.debug("Using API Key: \(String(apiKey.prefix(10)))...")
+        AppLogger.debug("Model: \(model), Endpoint: \(baseURL)/chat/completions")
+        
+        // Record request for rate limiting
+        RateLimitingService.shared.recordRequest()
         
         isLoading = true
         error = nil
@@ -159,7 +192,7 @@ class NextElevenAPIService {
         ]
         
         // Add conversation history (last 100 messages - with 2M token context, we can use much more)
-        // Grok 4.1 Fast can handle extensive conversation history
+        // Grok 4.1-fast can handle extensive conversation history
         let recentHistory = conversationHistory.suffix(100)
         for msg in recentHistory {
             messages.append([
@@ -187,7 +220,7 @@ class NextElevenAPIService {
         let requestBody = RequestBody(
             model: model,
             messages: messages,
-            max_tokens: 4000, // Increased output tokens for richer responses (2M context allows this)
+            max_tokens: 4000, // Output tokens for responses (2M context allows this)
             temperature: 0.8,
             top_p: 0.95,
             stream: false
@@ -199,37 +232,164 @@ class NextElevenAPIService {
             "Content-Type": "application/json"
         ]
         
-        // Make API request
-        AF.request(
-            "\(baseURL)/chat/completions",
+        // Make API request with timeout configuration and retry logic
+        performRequestWithRetry(
+            url: "\(baseURL)/chat/completions",
             method: .post,
             parameters: requestBody,
+            headers: headers,
+            maxRetries: 3,
+            retryDelay: 1.0,
+            attemptNumber: 0,
+            completion: completion
+        )
+    }
+    
+    /// Perform API request with exponential backoff retry logic
+    private func performRequestWithRetry(
+        url: String,
+        method: HTTPMethod,
+        parameters: Encodable,
+        headers: HTTPHeaders,
+        maxRetries: Int,
+        retryDelay: TimeInterval,
+        attemptNumber: Int = 0,
+        completion: @escaping @Sendable (Result<String, Error>) -> Void
+    ) {
+        let session = Session.default
+        let request = session.request(
+            url,
+            method: method,
+            parameters: parameters,
             encoder: JSONParameterEncoder.default,
             headers: headers
         )
         .validate()
-        .responseDecodable(of: ChatCompletionResponse.self) { response in
+        .responseDecodable(of: ChatCompletionResponse.self) { [weak self] response in
             Task { @MainActor in
+                guard let self = self else { return }
                 self.isLoading = false
                 
                 switch response.result {
                 case .success(let chatResponse):
-                    print("✅ API Response received")
+                    AppLogger.debug("API Response received")
+                    // Record success for health monitoring
+                    HealthCheckService.shared.recordSuccess()
+                    
                     if let content = chatResponse.choices.first?.message.content {
-                        print("✅ Content: \(String(content.prefix(50)))...")
+                        AppLogger.debug("Content length: \(content.count) characters")
                         completion(.success(content))
                     } else {
-                        print("❌ Empty response from API")
+                        AppLogger.error("Empty response from API")
+                        HealthCheckService.shared.recordFailure()
                         completion(.failure(APIError.emptyResponse))
                     }
                     
                 case .failure(let error):
-                    print("❌ API Error: \(error.localizedDescription)")
+                    // Check if error is retryable
+                    let isRetryable = self.isRetryableError(error)
+                    
+                    if isRetryable && maxRetries > 0 {
+                        // Retry with exponential backoff: delay * 2^attemptNumber
+                        let delay = retryDelay * pow(2.0, Double(attemptNumber))
+                        let nextAttempt = attemptNumber + 1
+                        AppLogger.warning("Retrying request after \(delay) seconds (attempt \(nextAttempt)/\(maxRetries))")
+                        
+                        Task {
+                            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                            await MainActor.run {
+                                self.performRequestWithRetry(
+                                    url: url,
+                                    method: method,
+                                    parameters: parameters,
+                                    headers: headers,
+                                    maxRetries: maxRetries - 1,
+                                    retryDelay: retryDelay,
+                                    attemptNumber: nextAttempt,
+                                    completion: completion
+                                )
+                            }
+                        }
+                        return
+                    }
+                    
+                    // Record failure for health monitoring (only after all retries exhausted)
+                    HealthCheckService.shared.recordFailure()
+                    AppLogger.error("API Error: \(error.localizedDescription)")
                     self.error = error.localizedDescription
-                    completion(.failure(error))
+                    
+                    // Check if it's a network error
+                    if let afError = error.asAFError {
+                        switch afError {
+                        case .sessionTaskFailed(let sessionError):
+                            if let urlError = sessionError as? URLError {
+                                switch urlError.code {
+                                case .timedOut:
+                                    AppLogger.warning("Request timed out")
+                                    completion(.failure(APIError.networkTimeout))
+                                case .notConnectedToInternet:
+                                    AppLogger.warning("No internet connection")
+                                    completion(.failure(APIError.noConnection))
+                                default:
+                                    completion(.failure(error))
+                                }
+                            } else {
+                                completion(.failure(error))
+                            }
+                        case .responseValidationFailed(let reason):
+                            if case .unacceptableStatusCode(let code) = reason {
+                                if code == 401 {
+                                    AppLogger.warning("Unauthorized - invalid API key")
+                                    completion(.failure(APIError.missingAPIKey))
+                                } else if code >= 500 && code < 600 {
+                                    // Server errors are retryable, but we've exhausted retries
+                                    AppLogger.error("HTTP \(code) error - server error")
+                                    completion(.failure(error))
+                                } else {
+                                    AppLogger.error("HTTP \(code) error")
+                                    completion(.failure(error))
+                                }
+                            } else {
+                                completion(.failure(error))
+                            }
+                        default:
+                            completion(.failure(error))
+                        }
+                    } else {
+                        completion(.failure(error))
+                    }
                 }
             }
         }
+        
+        request.task?.resume()
+    }
+    
+    /// Check if error is retryable (network errors, timeouts, server errors)
+    private func isRetryableError(_ error: Error) -> Bool {
+        if let afError = error.asAFError {
+            switch afError {
+            case .sessionTaskFailed(let sessionError):
+                if let urlError = sessionError as? URLError {
+                    switch urlError.code {
+                    case .timedOut, .networkConnectionLost, .notConnectedToInternet:
+                        return true
+                    default:
+                        return false
+                    }
+                }
+                return false
+            case .responseValidationFailed(let reason):
+                if case .unacceptableStatusCode(let code) = reason {
+                    // Retry on server errors (5xx)
+                    return code >= 500 && code < 600
+                }
+                return false
+            default:
+                return false
+            }
+        }
+        return false
     }
     
     // MARK: - Keychain Management
@@ -251,9 +411,9 @@ class NextElevenAPIService {
         let status = SecItemAdd(query as CFDictionary, nil)
         
         if status == errSecSuccess {
-            print("✅ API Key saved successfully to Keychain")
+            AppLogger.info("API Key saved successfully to Keychain")
         } else {
-            print("⚠️ Error saving API Key: \(status)")
+            AppLogger.error("Error saving API Key to Keychain: \(status)")
         }
     }
     
@@ -269,13 +429,14 @@ class NextElevenAPIService {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
         
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let key = String(data: data, encoding: .utf8) else {
-            return nil
+        if status == errSecSuccess,
+           let data = result as? Data,
+           let key = String(data: data, encoding: .utf8) {
+            return key
         }
         
-        return key
+        // Fallback to default key if Keychain is empty
+        return defaultAPIKey
     }
     
     func deleteAPIKey() {
@@ -334,6 +495,10 @@ enum APIError: LocalizedError {
     case missingAPIKey
     case emptyResponse
     case invalidResponse
+    case networkTimeout
+    case noConnection
+    case circuitBreakerOpen(String)
+    case rateLimited(String)
     
     var errorDescription: String? {
         switch self {
@@ -343,6 +508,14 @@ enum APIError: LocalizedError {
             return "Received empty response from Grok"
         case .invalidResponse:
             return "Invalid response format from xAI"
+        case .networkTimeout:
+            return "Request timed out. Please try again."
+        case .noConnection:
+            return "No internet connection. Please check your network."
+        case .circuitBreakerOpen(let message):
+            return message
+        case .rateLimited(let message):
+            return message
         }
     }
 }

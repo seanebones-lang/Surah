@@ -16,6 +16,7 @@ class AudioPlayerService: NSObject {
     private var player: AVPlayer?
     private var playerItem: AVPlayerItem?
     private var timeObserver: Any?
+    private var playbackEndObserver: NSObjectProtocol?
     
     var isPlaying: Bool = false
     var currentTime: TimeInterval = 0
@@ -37,10 +38,12 @@ class AudioPlayerService: NSObject {
     private func setupAudioSession() {
         do {
             let audioSession = AVAudioSession.sharedInstance()
-            try audioSession.setCategory(.playback, mode: .default, options: [])
+            // Optimize for battery: use .default mode (not .spokenAudio) unless needed
+            // Add .mixWithOthers to allow other audio to play simultaneously
+            try audioSession.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try audioSession.setActive(true)
         } catch {
-            print("Failed to setup audio session: \(error)")
+            AppLogger.error("Failed to setup audio session: \(error.localizedDescription)")
         }
     }
     
@@ -66,13 +69,21 @@ class AudioPlayerService: NSObject {
         // Add time observer
         addTimeObserver()
         
+        // Remove previous observer if exists
+        if let observer = playbackEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        
         // Add notification for playback end
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(playerDidFinishPlaying),
-            name: .AVPlayerItemDidPlayToEndTime,
-            object: playerItem
-        )
+        playbackEndObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: playerItem,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.playerDidFinishPlaying()
+            }
+        }
         
         // Start playback
         player?.play()
@@ -88,7 +99,7 @@ class AudioPlayerService: NSObject {
                         self.duration = duration.seconds
                     }
                 } catch {
-                    print("Failed to load duration: \(error)")
+                    AppLogger.warning("Failed to load audio duration: \(error.localizedDescription)")
                 }
             }
         }
@@ -107,14 +118,36 @@ class AudioPlayerService: NSObject {
         isPlaying = true
     }
     
-    /// Stop playback
+    /// Stop playback and release resources
     func stop() {
         player?.pause()
         player?.seek(to: .zero)
         removeTimeObserver()
+        removePlaybackEndObserver()
         isPlaying = false
         currentTime = 0
         currentItemID = nil
+        
+        // Release player resources to free memory
+        playerItem = nil
+        player?.replaceCurrentItem(with: nil)
+        player = nil
+        
+        // Notify system that audio session can be deactivated
+        Task { @MainActor in
+            do {
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            } catch {
+                AppLogger.warning("Failed to deactivate audio session: \(error.localizedDescription)")
+            }
+        }
+    }
+    
+    private func removePlaybackEndObserver() {
+        if let observer = playbackEndObserver {
+            NotificationCenter.default.removeObserver(observer)
+            playbackEndObserver = nil
+        }
     }
     
     /// Seek to specific time
@@ -151,7 +184,7 @@ class AudioPlayerService: NSObject {
         }
     }
     
-    @objc private func playerDidFinishPlaying() {
+    private func playerDidFinishPlaying() {
         isPlaying = false
         currentTime = 0
         
@@ -161,6 +194,9 @@ class AudioPlayerService: NSObject {
            item.repeatCount > 1 {
             // Replay for repeat count
             play(item: item)
+        } else {
+            // Reset when finished
+            currentItemID = nil
         }
     }
     
@@ -307,11 +343,12 @@ class AudioPlayerService: NSObject {
                 try FileManager.default.removeItem(at: file)
             }
         } catch {
-            print("Error clearing cache: \(error)")
+            AppLogger.error("Error clearing audio cache: \(error.localizedDescription)")
         }
     }
     
-    // Note: deinit cleanup happens automatically for @MainActor classes
+    // Note: deinit cleanup handled by @MainActor isolation
+    // Resources will be cleaned up automatically when object is deallocated
 }
 
 // MARK: - Errors

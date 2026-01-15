@@ -21,12 +21,14 @@ struct DuaCardView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.title)
-                        .font(.system(size: 20, weight: .semibold))
+                        .font(.headline)
                         .foregroundStyle(Color(hex: "#1B5E20"))
+                        .dynamicTypeSize(.large)
                     
                     Text(item.source)
-                        .font(.system(size: 14, weight: .regular))
+                        .font(.caption)
                         .foregroundStyle(Color(hex: "#558B2F"))
+                        .dynamicTypeSize(.large)
                 }
                 
                 Spacer()
@@ -34,6 +36,7 @@ struct DuaCardView: View {
                 Image(systemName: isExpanded ? "chevron.up.circle.fill" : "chevron.down.circle")
                     .font(.system(size: 24))
                     .foregroundStyle(Color(hex: "#66BB6A"))
+                    .accessibilityHidden(true)
             }
             
             if isExpanded {
@@ -42,26 +45,31 @@ struct DuaCardView: View {
                 // Arabic Text (RTL)
                 VStack(alignment: .trailing, spacing: 12) {
                     Text(item.arabicText)
-                        .font(.system(size: 22, weight: .medium))
+                        .font(.title2)
                         .multilineTextAlignment(.trailing)
                         .environment(\.layoutDirection, .rightToLeft)
                         .foregroundStyle(Color(hex: "#1B5E20"))
                         .lineSpacing(8)
+                        .dynamicTypeSize(.large)
                         .onTapGesture {
                             showFullArabic.toggle()
                         }
+                        .accessibilityLabel("Arabic text: \(item.arabicText)")
+                        .accessibilityHint("Double tap to view full Arabic text in larger size")
+                        .accessibilityAddTraits(.isButton)
                     
                     if item.repeatCount > 1 {
                         HStack {
                             Image(systemName: "repeat")
-                                .font(.system(size: 12))
+                                .font(.caption2)
                             Text("Recite \(item.repeatCount)x")
-                                .font(.system(size: 12, weight: .medium))
+                                .font(.caption2)
                         }
+                        .dynamicTypeSize(.large)
                         .foregroundStyle(Color(hex: "#F57C00"))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(Color(hex: "#FFF3E0"))
+                        .background(Color(UIColor.tertiarySystemGroupedBackground))
                         .cornerRadius(12)
                     }
                 }
@@ -70,9 +78,10 @@ struct DuaCardView: View {
                 
                 // English Translation
                 Text(item.englishTranslation)
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.body)
                     .foregroundStyle(.primary)
                     .lineSpacing(4)
+                    .dynamicTypeSize(.large)
                     .padding(.vertical, 8)
                 
                 // Audio Controls (Only show if audio available)
@@ -88,17 +97,20 @@ struct DuaCardView: View {
                                 
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Watch on YouTube")
-                                        .font(.system(size: 16, weight: .medium))
+                                        .font(.body)
                                         .foregroundStyle(.primary)
+                                        .dynamicTypeSize(.large)
                                     
                                     Text("Authentic Dua recitation with Urdu translation")
-                                        .font(.system(size: 14))
+                                        .font(.caption)
                                         .foregroundStyle(Color(hex: "#558B2F"))
+                                        .dynamicTypeSize(.large)
                                     
                                     if item.repeatCount > 1 {
                                         Text("🔁 Recite \(item.repeatCount) times")
-                                            .font(.system(size: 13))
+                                            .font(.caption2)
                                             .foregroundStyle(Color(hex: "#F57C00"))
+                                            .dynamicTypeSize(.large)
                                     }
                                 }
                                 
@@ -131,22 +143,25 @@ struct DuaCardView: View {
                             
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Read & Recite")
-                                    .font(.system(size: 16, weight: .medium))
-                                Text("This Dua is best recited in your own voice")
-                                    .font(.system(size: 14))
-                                    .foregroundStyle(Color(hex: "#558B2F"))
+                                    .font(.body)
+                                    .dynamicTypeSize(.large)
+                            Text("This Dua is best recited in your own voice")
+                                .font(.caption)
+                                .foregroundStyle(Color(hex: "#558B2F"))
+                                .dynamicTypeSize(.large)
                             }
                         }
                         
                         if item.repeatCount > 1 {
                             Text("💡 Recite \(item.repeatCount) times for maximum benefit")
-                                .font(.system(size: 13))
+                                .font(.caption2)
                                 .foregroundStyle(Color(hex: "#F57C00"))
+                                .dynamicTypeSize(.large)
                                 .padding(.top, 4)
                         }
                     }
                     .padding()
-                    .background(Color(hex: "#FFF3E0"))
+                    .background(Color(UIColor.tertiarySystemGroupedBackground))
                     .cornerRadius(12)
                     .padding(.top, 8)
                 }
@@ -155,7 +170,7 @@ struct DuaCardView: View {
         .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(.white)
+                .fill(Color(UIColor.systemBackground))
                 .shadow(color: Color.black.opacity(0.08), radius: 8, x: 0, y: 4)
         )
         .sheet(isPresented: $showFullArabic) {
@@ -174,15 +189,16 @@ struct FullArabicView: View {
             ScrollView {
                 VStack(spacing: 20) {
                     Text(item.arabicText)
-                        .font(.system(size: 28, weight: .medium))
+                        .font(.largeTitle)
                         .multilineTextAlignment(.trailing)
                         .environment(\.layoutDirection, .rightToLeft)
                         .foregroundStyle(Color(hex: "#1B5E20"))
                         .lineSpacing(12)
+                        .dynamicTypeSize(.large)
                         .padding()
                 }
             }
-            .background(Color(hex: "#F1F8E9"))
+            .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle(item.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -218,19 +234,24 @@ struct AudioControlsView: View {
                         .font(.system(size: 50))
                         .foregroundStyle(Color(hex: "#66BB6A"))
                 }
+                .accessibilityLabel(audioPlayer.isPlaying && audioPlayer.currentItemID == item.id ? "Pause audio" : "Play audio")
+                .accessibilityHint("Plays the audio recitation for \(item.title)")
                 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(audioPlayer.isPlaying && audioPlayer.currentItemID == item.id ? "Playing..." : "Tap to Play")
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.body)
+                        .dynamicTypeSize(.large)
                     
                     if audioPlayer.isPlaying && audioPlayer.currentItemID == item.id {
                         Text(formatTime(audioPlayer.currentTime) + " / " + formatTime(audioPlayer.duration))
-                            .font(.system(size: 14))
+                            .font(.caption)
                             .foregroundStyle(Color(hex: "#558B2F"))
+                            .dynamicTypeSize(.large)
                     } else {
                         Text("Recitation with translation")
-                            .font(.system(size: 14))
+                            .font(.caption)
                             .foregroundStyle(Color(hex: "#558B2F"))
+                            .dynamicTypeSize(.large)
                     }
                 }
                 
@@ -242,6 +263,8 @@ struct AudioControlsView: View {
                         .font(.system(size: 28))
                         .foregroundStyle(Color(hex: "#66BB6A"))
                 }
+                .accessibilityLabel("Download audio")
+                .accessibilityHint("Downloads audio for offline playback")
             }
             
             // Progress Slider
@@ -259,8 +282,9 @@ struct AudioControlsView: View {
             // Speed Control
             HStack {
                 Text("Speed:")
-                    .font(.system(size: 14))
+                    .font(.caption)
                     .foregroundStyle(Color(hex: "#558B2F"))
+                    .dynamicTypeSize(.large)
                 
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { speed in
                     Button(action: {
@@ -268,18 +292,21 @@ struct AudioControlsView: View {
                         audioPlayer.setSpeed(Float(speed))
                     }) {
                         Text("\(speed, specifier: "%.2g")x")
-                            .font(.system(size: 14, weight: playbackSpeed == Float(speed) ? .bold : .regular))
+                            .font(.caption.weight(playbackSpeed == Float(speed) ? .bold : .regular))
                             .foregroundStyle(playbackSpeed == Float(speed) ? Color(hex: "#66BB6A") : Color(hex: "#558B2F"))
+                            .dynamicTypeSize(.large)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(playbackSpeed == Float(speed) ? Color(hex: "#E8F5E9") : Color.clear)
                             .cornerRadius(8)
                     }
+                    .accessibilityLabel("Playback speed \(speed, specifier: "%.2g")x")
+                    .accessibilityAddTraits(playbackSpeed == Float(speed) ? .isSelected : [])
                 }
             }
         }
         .padding()
-        .background(Color(hex: "#F9FBF9"))
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
         .cornerRadius(12)
     }
     
@@ -305,7 +332,7 @@ struct AudioControlsView: View {
                 let notification = UINotificationFeedbackGenerator()
                 notification.notificationOccurred(.success)
             case .failure(let error):
-                print("Download failed: \(error)")
+                AppLogger.error("Audio download failed: \(error.localizedDescription)")
             }
         }
     }

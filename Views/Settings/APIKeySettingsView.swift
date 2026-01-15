@@ -10,59 +10,136 @@ import SwiftUI
 struct APIKeySettingsView: View {
     @State private var apiKey: String = ""
     @State private var showSuccess: Bool = false
+    @State private var showError: Bool = false
+    @State private var errorMessage: String = ""
     @State private var isSecure: Bool = true
+    @State private var isSaving: Bool = false
     
-    private let apiService = NextElevenAPIService.shared
+    private let apiService = XAIAPIService.shared
     
     var body: some View {
         Form {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("xAI API Key")
-                        .font(.headline)
-                    
-                    Text("Your key is securely stored in iOS Keychain")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    
-                    HStack {
-                        if isSecure {
-                            SecureField("Enter API key", text: $apiKey)
-                        } else {
-                            TextField("Enter API key", text: $apiKey)
+                    if apiService.getAPIKey() != nil {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("API Key Configured")
+                                .font(.headline)
                         }
                         
-                        Button(action: { isSecure.toggle() }) {
-                            Image(systemName: isSecure ? "eye.slash" : "eye")
+                        Text("Your API key is securely stored in iOS Keychain")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        
+                        HStack {
+                            if isSecure {
+                                SecureField("API key", text: .constant(apiKey))
+                                    .disabled(true)
+                            } else {
+                                TextField("API key", text: .constant(apiKey))
+                                    .disabled(true)
+                            }
+                            
+                            Button(action: { isSecure.toggle() }) {
+                                Image(systemName: isSecure ? "eye.slash" : "eye")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .accessibilityLabel(isSecure ? "Show API key" : "Hide API key")
+                            .accessibilityHint("Toggles visibility of the API key")
+                        }
+                        .textFieldStyle(.roundedBorder)
+                    } else {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("API Key Required")
+                                    .font(.headline)
+                            }
+                            
+                            Text("Please enter your xAI API key to enable chat with Iman")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
+                            
+                            HStack {
+                                if isSecure {
+                                    SecureField("Enter your xAI API key", text: $apiKey)
+                                } else {
+                                    TextField("Enter your xAI API key", text: $apiKey)
+                                }
+                                
+                                Button(action: { isSecure.toggle() }) {
+                                    Image(systemName: isSecure ? "eye.slash" : "eye")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .accessibilityLabel(isSecure ? "Show API key" : "Hide API key")
+                            }
+                            .textFieldStyle(.roundedBorder)
+                            
+                            Button(action: saveAPIKey) {
+                                HStack {
+                                    if isSaving {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle())
+                                    } else {
+                                        Image(systemName: "lock.shield.fill")
+                                        Text("Save API Key")
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(apiKey.isEmpty || isSaving)
+                            .accessibilityLabel("Save API key to Keychain")
                         }
                     }
-                    .textFieldStyle(.roundedBorder)
                 }
             } header: {
                 Text("API Configuration")
             } footer: {
-                Text("Your xAI API key is stored securely in the iOS Keychain (encrypted) and never shared. Get more keys at console.x.ai")
+                if apiService.getAPIKey() != nil {
+                    Text("Your xAI API key is stored securely in the iOS Keychain (encrypted). You can update it anytime.")
+                } else {
+                    Text("Get your API key from https://console.x.ai. The key will be stored securely in iOS Keychain.")
+                }
+            }
+            
+            if apiService.getAPIKey() != nil {
+                Section {
+                    Button(role: .destructive, action: deleteAPIKey) {
+                        HStack {
+                            Image(systemName: "trash")
+                            Text("Delete API Key")
+                        }
+                    }
+                    .accessibilityLabel("Delete API key from Keychain")
+                } header: {
+                    Text("Manage Key")
+                } footer: {
+                    Text("Deleting the API key will disable chat functionality until a new key is added.")
+                }
             }
             
             Section {
-                Button(action: saveAPIKey) {
-                    HStack {
-                        Spacer()
-                        Text("Save API Key")
-                            .fontWeight(.semibold)
-                        Spacer()
+                HStack {
+                    Spacer()
+                    VStack(spacing: 8) {
+                        Image(systemName: apiService.getAPIKey() != nil ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+                            .font(.system(size: 40))
+                            .foregroundStyle(apiService.getAPIKey() != nil ? .green : .orange)
+                        Text(apiService.getAPIKey() != nil ? "API Key Configured" : "API Key Required")
+                            .font(.headline)
+                        Text(apiService.getAPIKey() != nil ? "Ready to chat with Iman" : "Add API key to enable chat")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
+                    Spacer()
                 }
-                .disabled(apiKey.isEmpty)
-                
-                Button(role: .destructive, action: deleteAPIKey) {
-                    HStack {
-                        Spacer()
-                        Text("Delete API Key")
-                        Spacer()
-                    }
-                }
+                .padding(.vertical, 20)
+            } header: {
+                Text("Status")
             }
             
             Section {
@@ -108,10 +185,20 @@ struct APIKeySettingsView: View {
         } message: {
             Text("xAI API key saved successfully to Keychain! You can now chat with Iman in Urdu/English. 🌸")
         }
+        .alert("Error", isPresented: $showError) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(errorMessage)
+        }
         .onAppear {
-            // Load existing key (masked)
+            // Load existing key (masked) if configured
             if let existingKey = apiService.getAPIKey() {
-                apiKey = String(repeating: "•", count: 20) + existingKey.suffix(4)
+                // Show masked version - last 4 characters visible
+                let maskedLength = max(20, existingKey.count - 4)
+                apiKey = String(repeating: "•", count: maskedLength) + existingKey.suffix(4)
+            } else {
+                // No key configured - user needs to enter one
+                apiKey = ""
             }
         }
     }
@@ -119,12 +206,42 @@ struct APIKeySettingsView: View {
     private func saveAPIKey() {
         guard !apiKey.isEmpty else { return }
         
-        apiService.saveAPIKey(apiKey)
-        showSuccess = true
+        // Validate API key format (xAI keys typically start with xai-)
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        // Haptic feedback
-        let notification = UINotificationFeedbackGenerator()
-        notification.notificationOccurred(.success)
+        if trimmedKey.isEmpty {
+            errorMessage = "API key cannot be empty."
+            showError = true
+            return
+        }
+        
+        // Basic validation - xAI keys are typically long strings
+        if trimmedKey.count < 20 {
+            errorMessage = "API key appears to be invalid. Please check and try again."
+            showError = true
+            return
+        }
+        
+        isSaving = true
+        
+        // Save to keychain
+        apiService.saveAPIKey(trimmedKey)
+        
+        // Verify it was saved
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            isSaving = false
+            
+            if apiService.getAPIKey() != nil {
+                showSuccess = true
+                let notification = UINotificationFeedbackGenerator()
+                notification.notificationOccurred(.success)
+            } else {
+                errorMessage = "Failed to save API key. Please try again."
+                showError = true
+                let notification = UINotificationFeedbackGenerator()
+                notification.notificationOccurred(.error)
+            }
+        }
     }
     
     private func deleteAPIKey() {

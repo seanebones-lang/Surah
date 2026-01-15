@@ -15,7 +15,7 @@ struct SettingsView: View {
         
         NavigationStack {
             ZStack {
-                Color(hex: "#F1F8E9")
+                Color(UIColor.systemGroupedBackground)
                     .ignoresSafeArea()
                 
                 Form {
@@ -27,11 +27,13 @@ struct SettingsView: View {
                             
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Seemi Warris")
-                                    .font(.system(size: 22, weight: .semibold))
+                                    .font(.title2)
+                                    .dynamicTypeSize(.large)
                                 
                                 Text("Exclusive User")
-                                    .font(.system(size: 14))
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
+                                    .dynamicTypeSize(.large)
                             }
                             .padding(.leading, 8)
                         }
@@ -108,20 +110,24 @@ struct SettingsView: View {
                                 Spacer()
                             }
                         }
+                        .accessibilityLabel("Update location for prayer times")
+                        .accessibilityHint("Requests your current location to calculate accurate prayer times")
                     }
                     
                     Section("AI Settings") {
+                        HStack {
+                            Label("xAI API Key", systemImage: "key.fill")
+                            Spacer()
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("Configured")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        
                         NavigationLink(destination: APIKeySettingsView()) {
                             HStack {
-                                Label("xAI API Key", systemImage: "key.fill")
-                                Spacer()
-                                if NextElevenAPIService.shared.getAPIKey() != nil {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .foregroundStyle(.green)
-                                } else {
-                                    Image(systemName: "exclamationmark.circle.fill")
-                                        .foregroundStyle(.orange)
-                                }
+                                Label("View API Key Settings", systemImage: "eye.fill")
                             }
                         }
                         
@@ -190,11 +196,11 @@ struct SettingsView: View {
                     }
                     
                     Section {
-                        Button(role: .destructive) {
-                            // Clear chat history
-                        } label: {
-                            Label("Clear Chat History", systemImage: "trash")
+                        NavigationLink(destination: ChatHistorySettingsView()) {
+                            Label("Chat History", systemImage: "message.fill")
                         }
+                        .accessibilityLabel("Chat history settings")
+                        .accessibilityHint("Manage and clear chat history")
                     }
                 }
                 .scrollContentBackground(.hidden)
